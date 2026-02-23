@@ -285,10 +285,8 @@ document.addEventListener('DOMContentLoaded', () => {
   buildBackground();
   buildGrid();
 
-  // Prevent iOS double-tap zoom on interactive elements
-  document.querySelectorAll('button,.a-card,.m-item,.q-opt,.word-chip,.tab').forEach(el => {
-    el.addEventListener('touchend', e => e.preventDefault(), { passive: false });
-  });
+  // CSS touch-action:manipulation handles double-tap zoom — no JS needed
+  // (the old touchend+preventDefault was blocking all onclick handlers on mobile)
 
   // Periodic shooting stars — whimsical background delight
   setInterval(() => {
