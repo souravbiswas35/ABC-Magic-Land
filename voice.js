@@ -1,4 +1,4 @@
-/* voice.js — 3 distinct voices, cross-platform */
+/* voice.js — Works on Vercel/HTTPS deployed sites */
 
 const VoiceEngine = (() => {
   let voices = [];
@@ -7,36 +7,32 @@ const VoiceEngine = (() => {
   const synth = window.speechSynthesis;
 
   const PROFILES = [
-    { label:'🌸 Sweetie', labelBn:'🌸 সুইটি',
-      rate: 0.70, pitch: 1.0,
-      /* Try female voices — higher rate feels lighter */
+    { label:'🌸 Sweetie', labelBn:'🌸 সুইটি', rate:0.72,
       preferKw:['samantha','victoria','karen','moira','tessa','fiona','allison','ava','zira'],
       fallbackKw:['female','woman','girl'] },
-    { label:'🦋 Bubbly',  labelBn:'🦋 বাবলি',
-      rate: 0.82, pitch: 1.0,
-      preferKw:['alice','emma','amy','joanna','salli','kendra','kimberly','ivy','google uk'],
+    { label:'🦋 Bubbly',  labelBn:'🦋 বাবলি',  rate:0.85,
+      preferKw:['alice','emma','amy','joanna','salli','kendra','kimberly','ivy'],
       fallbackKw:['female','woman'] },
-    { label:'🐻 Teddy',   labelBn:'🐻 টেডি',
-      rate: 0.68, pitch: 1.0,
-      /* Try male voices — slower rate feels warmer/deeper */
-      preferKw:['daniel','matthew','joey','justin','oliver','thomas','arthur','alex','fred'],
+    { label:'🐻 Teddy',   labelBn:'🐻 টেডি',   rate:0.68,
+      preferKw:['daniel','matthew','joey','justin','oliver','thomas','arthur','alex'],
       fallbackKw:['male','man'] },
   ];
 
-  function loadVoices() { voices = synth.getVoices(); }
+  function loadVoices() {
+    const v = synth.getVoices();
+    if (v.length) voices = v;
+  }
   loadVoices();
   if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
-  [200, 500, 1000, 2000].forEach(t => setTimeout(loadVoices, t));
+  [100, 300, 700, 1500, 3000].forEach(t => setTimeout(loadVoices, t));
 
+  /* iOS: resume after screen lock */
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { try { synth.resume(); } catch(e) {} }
+    if (!document.hidden) { try { if (synth.paused) synth.resume(); } catch(e) {} }
   });
 
-  /* Find best matching voice for a profile */
-  function findVoiceForProfile(idx, lang) {
+  function findVoice(idx, lang) {
     if (!voices.length) return null;
-    const p = PROFILES[idx];
-
     if (lang === 'bn') {
       return voices.find(v => v.lang === 'bn-BD') ||
              voices.find(v => v.lang === 'bn-IN') ||
@@ -45,7 +41,7 @@ const VoiceEngine = (() => {
              voices.find(v => v.lang.startsWith('hi')) ||
              null;
     }
-
+    const p = PROFILES[idx];
     const en = v => v.lang.startsWith('en');
     for (const kw of p.preferKw) {
       const v = voices.find(x => x.name.toLowerCase().includes(kw) && en(x));
@@ -58,44 +54,52 @@ const VoiceEngine = (() => {
     return voices.find(en) || voices[0] || null;
   }
 
-  function hasBnVoice() { return !!findVoiceForProfile(0, 'bn'); }
+  function hasBnVoice() { return !!findVoice(0, 'bn'); }
 
+  /* Core speak — NO setTimeout wrapper (required for HTTPS/Vercel) */
   function speak(text, options = {}) {
     try { synth.cancel(); } catch(e) {}
+
     return new Promise(resolve => {
       const txt = String(text || '').trim();
       if (!txt) { resolve(); return; }
-      setTimeout(() => {
+
+      /* Must call synth.speak() synchronously inside user-gesture call stack.
+         A tiny rAF keeps it in the same gesture frame without breaking the chain. */
+      requestAnimationFrame(() => {
         try {
-          const utt  = new SpeechSynthesisUtterance(txt);
-          const prof = PROFILES[selectedVoice];
+          if (synth.paused) synth.resume();
+
+          const utt = new SpeechSynthesisUtterance(txt);
           const lang = options.lang === 'bn' ? 'bn' : 'en';
           const voice = options.voice !== undefined
             ? options.voice
-            : findVoiceForProfile(selectedVoice, lang);
+            : findVoice(selectedVoice, lang);
+
           if (voice) utt.voice = voice;
-          utt.rate   = options.rate  ?? prof.rate;
+          utt.rate   = options.rate ?? PROFILES[selectedVoice].rate;
           utt.pitch  = 1.0;
           utt.volume = 1.0;
           utt.lang   = options.lang === 'bn' ? 'bn-BD' : 'en-US';
+
           const guard = setTimeout(resolve, 6000);
           utt.onend   = () => { clearTimeout(guard); resolve(); };
           utt.onerror = () => { clearTimeout(guard); resolve(); };
           synth.speak(utt);
         } catch(e) { resolve(); }
-      }, 150);
+      });
     });
   }
 
   async function speakLetter(letter) {
-    await speak(`${letter}`, { rate: 0.6 });
+    await speak(`${letter}`, { rate: 0.60 });
   }
 
   async function speakWord(word, bangla = false) {
     if (!bangla) {
       await speak(word, { rate: PROFILES[selectedVoice].rate });
     } else {
-      const bnVoice = findVoiceForProfile(selectedVoice, 'bn');
+      const bnVoice = findVoice(selectedVoice, 'bn');
       await speak(word, { voice: bnVoice || undefined, lang: 'bn', rate: 0.75 });
     }
   }
@@ -103,7 +107,7 @@ const VoiceEngine = (() => {
   async function speakFull(letter) {
     const d = ALPHA_DATA[letter];
     await speakLetter(letter);
-    await pause(280);
+    await pause(300);
     if (d?.words?.[0]) await speak(d.words[0].en, { rate: PROFILES[selectedVoice].rate });
   }
 
